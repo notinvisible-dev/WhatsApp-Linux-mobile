@@ -565,6 +565,9 @@ func (a *Api) SendMessage(chatJID string, content MessageContent) (string, error
 	return resp.ID, nil
 }
 func (a *Api) MarkRead(chatJID string, messageIDs []string, Type string) error {
+	if !store.GetReadReceipts() {
+		return nil
+	}
 	parsedChatJID, err := types.ParseJID(chatJID)
 	if err != nil {
 		return err
@@ -584,6 +587,29 @@ func (a *Api) MarkRead(chatJID string, messageIDs []string, Type string) error {
 			}
 		}
 	}
+	return nil
+}
+
+// DeleteMessage revokes a message for everyone and marks it deleted locally.
+func (a *Api) DeleteMessage(chatJID, messageID string) error {
+	if a.waClient.Store.ID == nil {
+		return fmt.Errorf("not logged in")
+	}
+	chat, err := types.ParseJID(chatJID)
+	if err != nil {
+		return err
+	}
+	sender := *a.waClient.Store.ID
+
+	revoke := a.waClient.BuildRevoke(chat, sender, types.MessageID(messageID))
+	if _, err := a.waClient.SendMessage(a.ctx, chat, revoke); err != nil {
+		return err
+	}
+
+	if err := a.messageStore.MarkMessageDeleted(messageID); err != nil {
+		return err
+	}
+	a.emitMessageUpdate(chatJID, messageID)
 	return nil
 }
 

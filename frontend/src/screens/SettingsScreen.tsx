@@ -28,6 +28,23 @@ import {
   UserIcon,
 } from "../assets/svgs/settings_icons"
 
+// Tailwind's `md` breakpoint is 768px. Below it we use a stack navigation.
+const MD_QUERY = "(max-width: 767px)"
+
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== "undefined" && window.matchMedia(MD_QUERY).matches,
+  )
+  useEffect(() => {
+    const mql = window.matchMedia(MD_QUERY)
+    const onChange = () => setIsMobile(mql.matches)
+    onChange()
+    mql.addEventListener("change", onChange)
+    return () => mql.removeEventListener("change", onChange)
+  }, [])
+  return isMobile
+}
+
 type SettingsCategory =
   | "general"
   | "account"
@@ -122,6 +139,8 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
   const selfAvatar = useSelfAvatarStore(s => s.selfAvatar)
   const setSelfAvatar = useSelfAvatarStore(s => s.setSelfAvatar)
 
+  const isMobile = useIsMobile()
+
   const loadAvatar = useCallback(async () => {
     try {
       const avatarURL = await GetSelfAvatar(false)
@@ -143,15 +162,6 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
   }
 
   const renderContent = () => {
-    if (!selectedCategory) {
-      return (
-        <div className="flex flex-col items-center">
-          <SettingsIcon className="w-32 h-32 mb-8 text-gray-300 dark:text-[#2a2a2a]" />
-          <h2 className="text-2xl font-light">Settings</h2>
-        </div>
-      )
-    }
-
     if (nestedScreen) {
       return (
         <div className="w-full max-w-2xl px-8 py-6 overflow-y-auto h-full">
@@ -167,13 +177,68 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
       )
     }
 
+    if (!selectedCategory) {
+      if (isMobile) {
+        return (
+          <div className="w-full h-full overflow-y-auto">
+            <div className="h-28 flex flex-col justify-end px-4 pb-2">
+              <div className="flex items-center mb-4">
+                <button
+                  onClick={onBack}
+                  className="mr-4 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                >
+                  <BackIcon />
+                </button>
+                <h1 className="text-2xl font-semibold text-light-text dark:text-dark-text">Settings</h1>
+              </div>
+              <SearchBar value={searchTerm} onChange={setSearchTerm} />
+            </div>
+
+            <ProfileCard profile={profile} avatar={selfAvatar} />
+
+            <div className="flex-1 overflow-y-auto">
+              {filteredItems.map((item: SettingsItem) => (
+                <SettingsMenuItem
+                  key={item.id}
+                  item={item}
+                  isSelected={false}
+                  onClick={() => {
+                    if (item.screen) {
+                      setSelectedCategory(item.id)
+                    } else if (item.id === "logout") {
+                      setSelectedCategory(item.id)
+                    }
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        )
+      }
+      return (
+        <div className="flex flex-col items-center">
+          <SettingsIcon className="w-32 h-32 mb-8 text-gray-300 dark:text-[#2a2a2a]" />
+          <h2 className="text-2xl font-light">Settings</h2>
+        </div>
+      )
+    }
+
     const currentItem = settingsItems.find(i => i.id === selectedCategory)
 
     return (
       <div className="w-full px-8 py-6 overflow-y-auto h-full">
-        <h2 className="text-2xl font-light mb-6 text-light-text dark:text-dark-text">
-          {currentItem?.label}
-        </h2>
+        <div className="flex items-center mb-6">
+          <button
+            onClick={() => setSelectedCategory(null)}
+            className="flex items-center gap-2 mr-4 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+          >
+            <BackIcon />
+            <span>Back</span>
+          </button>
+          <h2 className="text-2xl font-light text-light-text dark:text-dark-text">
+            {currentItem?.label}
+          </h2>
+        </div>
         {selectedCategory === "account" ? (
           <AccountSettingsScreen onNavigate={handleNavigate} />
         ) : (
@@ -189,18 +254,22 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
 
   return (
     <div className="flex h-screen bg-light-secondary dark:bg-black overflow-hidden">
-      <Sidebar
-        searchTerm={searchTerm}
-        onSearchChange={setSearchTerm}
-        profile={profile}
-        avatar={selfAvatar}
-        items={filteredItems}
-        selectedCategory={selectedCategory}
-        onSelectCategory={setSelectedCategory}
-        onBack={onBack}
-      />
-      <div className="flex-1 bg-light-secondary dark:bg-dark-secondary flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
-        {renderContent()}
+      {!isMobile && (
+        <Sidebar
+          searchTerm={searchTerm}
+          onSearchChange={setSearchTerm}
+          profile={profile}
+          avatar={selfAvatar}
+          items={filteredItems}
+          selectedCategory={selectedCategory}
+          onSelectCategory={setSelectedCategory}
+          onBack={onBack}
+        />
+      )}
+      <div className="flex-1 bg-light-secondary dark:bg-dark-secondary flex flex-col">
+        <div className="w-full h-full">
+          {renderContent()}
+        </div>
       </div>
     </div>
   )

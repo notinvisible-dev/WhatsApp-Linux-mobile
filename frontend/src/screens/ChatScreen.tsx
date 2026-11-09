@@ -25,6 +25,26 @@ import {
   formatChatTimestamp,
 } from "../lib/utils"
 import { useAppSettingsStore } from "../store/useAppSettingsStore"
+
+// Tailwind's `md` breakpoint is 768px. Below it we render a single full-width
+// pane instead of the resizable two-pane layout, otherwise the inactive panel
+// keeps reserving its width and leaves half the screen blank on phones.
+const MD_QUERY = "(max-width: 767px)"
+
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== "undefined" && window.matchMedia(MD_QUERY).matches,
+  )
+  useEffect(() => {
+    const mql = window.matchMedia(MD_QUERY)
+    const onChange = () => setIsMobile(mql.matches)
+    onChange()
+    mql.addEventListener("change", onChange)
+    return () => mql.removeEventListener("change", onChange)
+  }, [])
+  return isMobile
+}
+
 import {
   UserAvatar,
   NewChatIcon,
@@ -425,6 +445,7 @@ export function ChatListScreen({ onOpenSettings }: ChatListScreenProps) {
   const [selectedCommunity, setSelectedCommunity] = useState<api.CommunitySummary | null>(null)
   // When opening a group from a community home, remember it so Back returns there.
   const [communityReturn, setCommunityReturn] = useState<api.CommunitySummary | null>(null)
+  const isMobile = useIsMobile()
 
   const handleChatSelect = useCallback(
     (chat: ChatItem) => {
@@ -787,149 +808,273 @@ export function ChatListScreen({ onOpenSettings }: ChatListScreenProps) {
           </button>
         </div>
       )}
-      <ResizablePanelGroup className="h-full">
-        {/* Chat List Sidebar */}
-        <ResizablePanel
-          defaultSize="30%"
-          minSize="320px"
-          maxSize="600px"
-          className={clsx(
-            "flex-col",
-            "border-r border-gray-200 dark:border-dark-tertiary",
-            "bg-white dark:bg-dark-bg h-full",
-            selectedChatId || selectedCommunity ? "hidden md:flex" : "flex",
-          )}
-        >
-          <Header onOpenSettings={onOpenSettings} avatar={selfAvatar} />
-          <div className="flex gap-2 px-3 pb-2 pt-1 overflow-x-auto">
-            {(["chats", "communities", "channels", "status"] as const).map(v => (
-              <button
-                key={v}
-                onClick={() => setView(v)}
-                className={clsx(
-                  "rounded-full border px-3 py-1 text-sm capitalize transition-colors shrink-0",
-                  view === v
-                    ? "border-transparent bg-[#d9fdd3] font-medium text-[#0a1014] dark:bg-[#e9edef] dark:text-[#0b141a]"
-                    : "border-gray-300 text-gray-500 hover:bg-gray-100 dark:border-white/10 dark:text-[#8696a0] dark:hover:bg-white/5",
-                )}
-              >
-                {v}
-              </button>
-            ))}
-          </div>
-          {view !== "status" && (
-            <SearchBar
-              value={searchTerm}
-              onChange={setSearchTerm}
-              placeholder={
-                view === "communities"
-                  ? "Search communities"
-                  : view === "channels"
-                    ? "Search channels"
-                    : "Search or start new chat"
-              }
-            />
-          )}
+      {isMobile ? (
+        <div className="h-full w-full">
+          {storyGroup && <StoryViewer group={storyGroup} onClose={() => setStoryGroup(null)} />}
+          {callActive && <CallOverlay call={call} />}
+          {selectedChatId || selectedCommunity ? (
+            <div className="h-full w-full flex flex-col bg-[#efeae2] dark:bg-[#0a0a0a] relative">
+              {selectedChatId ? (
+                <ChatDetail
+                  key={selectedChatId}
+                  chatId={selectedChatId}
+                  chatName={selectedChatName}
+                  chatAvatar={selectedChatAvatar}
+                  onBack={handleBack}
+                />
+              ) : selectedCommunity ? (
+                <CommunityHome
+                  communityJid={selectedCommunity.jid}
+                  communityName={selectedCommunity.name}
+                  communityAvatar={selectedCommunity.avatar_url}
+                  onBack={() => setSelectedCommunity(null)}
+                  onOpenGroup={handleOpenGroupFromCommunity}
+                />
+              ) : view === "communities" ? (
+                <CommunitiesWelcome />
+              ) : (
+                <WelcomeScreen />
+              )}
+            </div>
+          ) : (
+            <div className="h-full w-full flex flex-col bg-white dark:bg-dark-bg">
+              <Header onOpenSettings={onOpenSettings} avatar={selfAvatar} />
+              <div className="flex gap-2 px-3 pb-2 pt-1 overflow-x-auto">
+                {(["chats", "communities", "channels", "status"] as const).map(v => (
+                  <button
+                    key={v}
+                    onClick={() => setView(v)}
+                    className={clsx(
+                      "rounded-full border px-3 py-1 text-sm capitalize transition-colors shrink-0",
+                      view === v
+                        ? "border-transparent bg-[#d9fdd3] font-medium text-[#0a1014] dark:bg-[#e9edef] dark:text-[#0b141a]"
+                        : "border-gray-300 text-gray-500 hover:bg-gray-100 dark:border-white/10 dark:text-[#8696a0] dark:hover:bg-white/5",
+                    )}
+                  >
+                    {v}
+                  </button>
+                ))}
+              </div>
+              {view !== "status" && (
+                <SearchBar
+                  value={searchTerm}
+                  onChange={setSearchTerm}
+                  placeholder={
+                    view === "communities"
+                      ? "Search communities"
+                      : view === "channels"
+                        ? "Search channels"
+                        : "Search or start new chat"
+                  }
+                />
+              )}
 
-          {/* Archived entry (main view) / archived header (archived view) */}
-          {!showArchived && view === "chats" && archivedCount > 0 && (
-            <button
-              onClick={() => setShowArchived(true)}
-              className="flex w-full items-center gap-4 px-4 py-3 text-left hover:bg-gray-100 dark:hover:bg-[#1a1a1a]"
-            >
-              <span className="flex w-12 justify-center text-[#1b9a58] dark:text-[#21c063]">
-                <svg viewBox="0 0 24 24" width="20" height="20" className="fill-current">
-                  <path d="M20.54 5.23 19.15 3.55A1.5 1.5 0 0 0 18 3H6a1.5 1.5 0 0 0-1.16.55L3.46 5.23A2 2 0 0 0 3 6.5V19a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6.5a2 2 0 0 0-.46-1.27ZM6.24 5h11.52l.81.97H5.44ZM5 19V8h14v11Zm8-5.5V11h-2v2.5H8.5L12 17l3.5-3.5Z" />
-                </svg>
-              </span>
-              <span className="flex-1 font-medium text-light-text dark:text-dark-text">
-                Archived
-              </span>
-              <span className="text-xs text-gray-500 dark:text-[#8696a0]">{archivedCount}</span>
-            </button>
-          )}
-          {showArchived && (
-            <div className="flex items-center gap-4 border-b border-gray-200 px-4 py-3 dark:border-white/5">
-              <button
-                onClick={() => setShowArchived(false)}
-                className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                aria-label="Back to chats"
-              >
-                <GoBackIcon />
-              </button>
-              <span className="font-medium text-light-text dark:text-dark-text">Archived</span>
+              {/* Archived entry (main view) / archived header (archived view) */}
+              {!showArchived && view === "chats" && archivedCount > 0 && (
+                <button
+                  onClick={() => setShowArchived(true)}
+                  className="flex w-full items-center gap-4 px-4 py-3 text-left hover:bg-gray-100 dark:hover:bg-[#1a1a1a]"
+                >
+                  <span className="flex w-12 justify-center text-[#1b9a58] dark:text-[#21c063]">
+                    <svg viewBox="0 0 24 24" width="20" height="20" className="fill-current">
+                      <path d="M20.54 5.23 19.15 3.55A1.5 1.5 0 0 0 18 3H6a1.5 1.5 0 0 0-1.16.55L3.46 5.23A2 2 0 0 0 3 6.5V19a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6.5a2 2 0 0 0-.46-1.27ZM6.24 5h11.52l.81.97H5.44ZM5 19V8h14v11Zm8-5.5V11h-2v2.5H8.5L12 17l3.5-3.5Z" />
+                    </svg>
+                  </span>
+                  <span className="flex-1 font-medium text-light-text dark:text-dark-text">
+                    Archived
+                  </span>
+                  <span className="text-xs text-gray-500 dark:text-[#8696a0]">{archivedCount}</span>
+                </button>
+              )}
+              {showArchived && (
+                <div className="flex items-center gap-4 border-b border-gray-200 px-4 py-3 dark:border-white/5">
+                  <button
+                    onClick={() => setShowArchived(false)}
+                    className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                    aria-label="Back to chats"
+                  >
+                    <GoBackIcon />
+                  </button>
+                  <span className="font-medium text-light-text dark:text-dark-text">Archived</span>
+                </div>
+              )}
+
+              <div className="flex-1 overflow-y-auto">
+                {view === "status" ? (
+                  <StatusList onOpen={setStoryGroup} />
+                ) : view === "communities" ? (
+                  <CommunityList
+                    searchTerm={searchTerm}
+                    selectedJid={selectedCommunity?.jid ?? null}
+                    onSelect={handleCommunitySelect}
+                  />
+                ) : filteredChatIds.length === 0 ? (
+                  <EmptyState
+                    hasChats={totalChats > 0}
+                    isLoading={isFetchingRef.current}
+                    onRefresh={fetchChats}
+                  />
+                ) : (
+                  filteredChatIds.map(chatId => (
+                    <ChatListItem
+                      key={chatId}
+                      chatId={chatId}
+                      isSelected={selectedChatId === chatId}
+                      onSelect={handleChatSelect}
+                      onContextMenu={handleChatContextMenu}
+                    />
+                  ))
+                )}
+              </div>
+              {callActive && <CallOverlay call={call} />}
             </div>
           )}
-
-          <div className="flex-1 overflow-y-auto">
-            {view === "status" ? (
-              <StatusList onOpen={setStoryGroup} />
-            ) : view === "communities" ? (
-              <CommunityList
-                searchTerm={searchTerm}
-                selectedJid={selectedCommunity?.jid ?? null}
-                onSelect={handleCommunitySelect}
-              />
-            ) : filteredChatIds.length === 0 ? (
-              <EmptyState
-                hasChats={totalChats > 0}
-                isLoading={isFetchingRef.current}
-                onRefresh={fetchChats}
-              />
-            ) : (
-              filteredChatIds.map(chatId => (
-                <ChatListItem
-                  key={chatId}
-                  chatId={chatId}
-                  isSelected={selectedChatId === chatId}
-                  onSelect={handleChatSelect}
-                  onContextMenu={handleChatContextMenu}
-                />
-              ))
+        </div>
+      ) : (
+        <ResizablePanelGroup className="h-full">
+          {/* Chat List Sidebar */}
+          <ResizablePanel
+            defaultSize="30%"
+            minSize="320px"
+            maxSize="600px"
+            className={clsx(
+              "flex-col",
+              "border-r border-gray-200 dark:border-dark-tertiary",
+              "bg-white dark:bg-dark-bg h-full",
+              selectedChatId || selectedCommunity ? "hidden md:flex" : "flex",
             )}
-          </div>
-          {callActive && <CallOverlay call={call} />}
-        </ResizablePanel>
-        {storyGroup && <StoryViewer group={storyGroup} onClose={() => setStoryGroup(null)} />}
+          >
+            <Header onOpenSettings={onOpenSettings} avatar={selfAvatar} />
+            <div className="flex gap-2 px-3 pb-2 pt-1 overflow-x-auto">
+              {(["chats", "communities", "channels", "status"] as const).map(v => (
+                <button
+                  key={v}
+                  onClick={() => setView(v)}
+                  className={clsx(
+                    "rounded-full border px-3 py-1 text-sm capitalize transition-colors shrink-0",
+                    view === v
+                      ? "border-transparent bg-[#d9fdd3] font-medium text-[#0a1014] dark:bg-[#e9edef] dark:text-[#0b141a]"
+                      : "border-gray-300 text-gray-500 hover:bg-gray-100 dark:border-white/10 dark:text-[#8696a0] dark:hover:bg-white/5",
+                  )}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+            {view !== "status" && (
+              <SearchBar
+                value={searchTerm}
+                onChange={setSearchTerm}
+                placeholder={
+                  view === "communities"
+                    ? "Search communities"
+                    : view === "channels"
+                      ? "Search channels"
+                      : "Search or start new chat"
+                }
+              />
+            )}
 
-        <ResizableHandle />
+            {/* Archived entry (main view) / archived header (archived view) */}
+            {!showArchived && view === "chats" && archivedCount > 0 && (
+              <button
+                onClick={() => setShowArchived(true)}
+                className="flex w-full items-center gap-4 px-4 py-3 text-left hover:bg-gray-100 dark:hover:bg-[#1a1a1a]"
+              >
+                <span className="flex w-12 justify-center text-[#1b9a58] dark:text-[#21c063]">
+                  <svg viewBox="0 0 24 24" width="20" height="20" className="fill-current">
+                    <path d="M20.54 5.23 19.15 3.55A1.5 1.5 0 0 0 18 3H6a1.5 1.5 0 0 0-1.16.55L3.46 5.23A2 2 0 0 0 3 6.5V19a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6.5a2 2 0 0 0-.46-1.27ZM6.24 5h11.52l.81.97H5.44ZM5 19V8h14v11Zm8-5.5V11h-2v2.5H8.5L12 17l3.5-3.5Z" />
+                  </svg>
+                </span>
+                <span className="flex-1 font-medium text-light-text dark:text-dark-text">
+                  Archived
+                </span>
+                <span className="text-xs text-gray-500 dark:text-[#8696a0]">{archivedCount}</span>
+              </button>
+            )}
+            {showArchived && (
+              <div className="flex items-center gap-4 border-b border-gray-200 px-4 py-3 dark:border-white/5">
+                <button
+                  onClick={() => setShowArchived(false)}
+                  className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                  aria-label="Back to chats"
+                >
+                  <GoBackIcon />
+                </button>
+                <span className="font-medium text-light-text dark:text-dark-text">Archived</span>
+              </div>
+            )}
 
-        {/* Chat Detail */}
-        <ResizablePanel
-          defaultSize="70%"
-          minSize="400px"
-          className={clsx(
-            "flex-col h-full",
-            selectedCommunity
-              ? "bg-light-secondary dark:bg-dark-bg"
-              : "bg-[#efeae2] dark:bg-[#0a0a0a]",
-            "relative",
-            selectedChatId || selectedCommunity ? "flex" : "hidden md:flex",
-          )}
-        >
-          {selectedChatId ? (
-            <ChatDetail
-              key={selectedChatId}
-              chatId={selectedChatId}
-              chatName={selectedChatName}
-              chatAvatar={selectedChatAvatar}
-              onBack={handleBack}
-            />
-          ) : selectedCommunity ? (
-            <CommunityHome
-              communityJid={selectedCommunity.jid}
-              communityName={selectedCommunity.name}
-              communityAvatar={selectedCommunity.avatar_url}
-              onBack={() => setSelectedCommunity(null)}
-              onOpenGroup={handleOpenGroupFromCommunity}
-            />
-          ) : view === "communities" ? (
-            <CommunitiesWelcome />
-          ) : (
-            <WelcomeScreen />
-          )}
-        </ResizablePanel>
-      </ResizablePanelGroup>
+            <div className="flex-1 overflow-y-auto">
+              {view === "status" ? (
+                <StatusList onOpen={setStoryGroup} />
+              ) : view === "communities" ? (
+                <CommunityList
+                  searchTerm={searchTerm}
+                  selectedJid={selectedCommunity?.jid ?? null}
+                  onSelect={handleCommunitySelect}
+                />
+              ) : filteredChatIds.length === 0 ? (
+                <EmptyState
+                  hasChats={totalChats > 0}
+                  isLoading={isFetchingRef.current}
+                  onRefresh={fetchChats}
+                />
+              ) : (
+                filteredChatIds.map(chatId => (
+                  <ChatListItem
+                    key={chatId}
+                    chatId={chatId}
+                    isSelected={selectedChatId === chatId}
+                    onSelect={handleChatSelect}
+                    onContextMenu={handleChatContextMenu}
+                  />
+                ))
+              )}
+            </div>
+            {callActive && <CallOverlay call={call} />}
+          </ResizablePanel>
+          {storyGroup && <StoryViewer group={storyGroup} onClose={() => setStoryGroup(null)} />}
+
+          <ResizableHandle />
+
+          {/* Chat Detail */}
+          <ResizablePanel
+            defaultSize="70%"
+            minSize="400px"
+            className={clsx(
+              "flex-col h-full",
+              selectedCommunity
+                ? "bg-light-secondary dark:bg-dark-bg"
+                : "bg-[#efeae2] dark:bg-[#0a0a0a]",
+              "relative",
+              selectedChatId || selectedCommunity ? "flex" : "hidden md:flex",
+            )}
+          >
+            {selectedChatId ? (
+              <ChatDetail
+                key={selectedChatId}
+                chatId={selectedChatId}
+                chatName={selectedChatName}
+                chatAvatar={selectedChatAvatar}
+                onBack={handleBack}
+              />
+            ) : selectedCommunity ? (
+              <CommunityHome
+                communityJid={selectedCommunity.jid}
+                communityName={selectedCommunity.name}
+                communityAvatar={selectedCommunity.avatar_url}
+                onBack={() => setSelectedCommunity(null)}
+                onOpenGroup={handleOpenGroupFromCommunity}
+              />
+            ) : view === "communities" ? (
+              <CommunitiesWelcome />
+            ) : (
+              <WelcomeScreen />
+            )}
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      )}
     </div>
   )
 }

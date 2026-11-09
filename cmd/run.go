@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"io/fs"
+	"os"
 
 	apiPkg "github.com/lugvitc/whats4linux/api"
 	"github.com/lugvitc/whats4linux/internal/misc"
@@ -29,8 +30,10 @@ func run(assets fs.FS) cli.ActionFunc {
 
 		return wails.Run(&options.App{
 			Title:  misc.APP_NAME,
-			Width:  1024,
-			Height: 768,
+			Width:  1080,
+			Height: 2280,
+			MinWidth:  400,
+			MinHeight: 600,
 			AssetServer: &assetserver.Options{
 				Assets:  assets,
 				Handler: server.NewAssetFileServer(),
@@ -47,11 +50,18 @@ func run(assets fs.FS) cli.ActionFunc {
 			},
 			Linux: &linux.Options{
 				WindowIsTranslucent: false,
-				// Software rendering avoids WebKitGTK GPU-process crashes across
-				// mixed Mesa/NVIDIA/Wayland setups.
 				WebviewGpuPolicy: linux.WebviewGpuPolicyNever,
 				ProgramName:      APP_NAME,
 			},
 		})
 	}
+}
+
+func getScreenSize() (int, int) {
+	// Try to get screen dimensions from environment or display
+	if display := os.Getenv("DISPLAY"); display != "" {
+		// Could use xrandr or similar, but for now return mobile defaults
+		return 412, 915
+	}
+	return 0, 0
 }

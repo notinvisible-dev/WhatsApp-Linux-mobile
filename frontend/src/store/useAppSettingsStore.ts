@@ -44,6 +44,15 @@ export interface AppSettings {
   spellCheck: boolean
   replaceTextWithEmojis: boolean
   enterIsSend: boolean
+
+  // Mods
+  keepDeletedMessages: boolean
+  hideTypingIndicator: boolean
+  appearOffline: boolean
+  autoResponder: boolean
+  messageScheduler: boolean
+  voiceTranscription: boolean
+  fakeReplies: boolean
 }
 
 const defaultSettings: AppSettings = {
@@ -71,6 +80,15 @@ const defaultSettings: AppSettings = {
   spellCheck: true,
   replaceTextWithEmojis: true,
   enterIsSend: false,
+
+  // Mods
+  keepDeletedMessages: false,
+  hideTypingIndicator: false,
+  appearOffline: false,
+  autoResponder: false,
+  messageScheduler: false,
+  voiceTranscription: false,
+  fakeReplies: false,
 }
 
 function extractSettings(state: AppSettingsStore): AppSettings {

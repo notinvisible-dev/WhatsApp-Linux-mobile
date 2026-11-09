@@ -4,6 +4,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/lugvitc/whats4linux/internal/store"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/types"
@@ -163,6 +164,9 @@ func (a *Api) GetChannelList() ([]ChatElement, error) {
 }
 
 func (a *Api) SendChatPresence(jid string, cp types.ChatPresence, cpm types.ChatPresenceMedia) error {
+	if store.GetHideTypingIndicator() && (cp == types.ChatPresenceComposing || cp == types.ChatPresencePaused) {
+		return nil
+	}
 	parsedJid, err := types.ParseJID(jid)
 	if err != nil {
 		return err

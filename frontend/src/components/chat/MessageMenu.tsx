@@ -10,6 +10,7 @@ interface MessageMenuProps {
   onCopy?: () => void
   onReact?: () => void
   onPin?: () => void
+  onDelete?: () => void
 }
 
 // Same pin glyph as the chat list, sized for menu rows.
@@ -27,6 +28,7 @@ export function MessageMenu({
   onCopy,
   onReact,
   onPin,
+  onDelete,
 }: MessageMenuProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isClosing, setIsClosing] = useState(false)
@@ -167,6 +169,18 @@ export function MessageMenu({
               >
                 <PinMenuIcon />
                 <span>{isPinned ? "Unpin" : "Pin"}</span>
+              </button>
+            )}
+
+            {onDelete && isFromMe && (
+              <button
+                onClick={() => handleMenuItemClick(onDelete)}
+                className="rounded-xl w-full px-4 py-2.5 text-left flex items-center gap-3 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors text-red-600 dark:text-red-400 text-sm"
+              >
+                <svg viewBox="0 0 24 24" width="18" height="18" className="fill-current">
+                  <path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+                </svg>
+                <span>Delete</span>
               </button>
             )}
           </div>,

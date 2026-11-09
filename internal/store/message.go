@@ -19,6 +19,7 @@ import (
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+	"google.golang.org/protobuf/proto"
 )
 
 type Reaction struct {
@@ -262,6 +263,11 @@ func NewMessageStore() (*MessageStore, error) {
 	}
 
 	return ms, nil
+}
+
+// DB returns the underlying database connection for direct queries.
+func (ms *MessageStore) DB() *sql.DB {
+	return ms.db
 }
 
 func (ms *MessageStore) runWriter() {
@@ -581,6 +587,10 @@ func (ms *MessageStore) ProcessMessageEvent(ctx context.Context, sd store.LIDSto
 		if targetID == "" {
 			return ""
 		}
+		// Anti-delete mod: keep the original content and ignore the revoke.
+		if GetKeepDeletedMessages() {
+			return ""
+		}
 		if err := ms.MarkMessageDeleted(targetID); err != nil {
 			log.Println("Failed to mark message deleted:", err)
 			return ""
@@ -642,6 +652,7 @@ func (ms *MessageStore) InsertMessage(info *types.MessageInfo, msg *waE2E.Messag
 		emc                              wa.ExtendedMediaContent
 		mediaType                        mtypes.MediaType
 		width, height                    int
+		quotedMessageJSON                string
 	)
 
 	var messageType mtypes.MessageType
@@ -677,7 +688,7 @@ func (ms *MessageStore) InsertMessage(info *types.MessageInfo, msg *waE2E.Messag
 		messageType = mtypes.MessageTypeNormal
 	}
 
-	text, fileName, replyToMessageID, forwarded, emc, mediaType, width, height = extractMessageContent(msg)
+	text, fileName, replyToMessageID, forwarded, emc, mediaType, width, height, quotedMessageJSON = extractMessageContent(msg)
 
 	// gifPlayback marks a video that should loop like a GIF. GetVideoMessage is
 	// nil-safe and returns false for non-video messages.
@@ -749,6 +760,7 @@ func (ms *MessageStore) InsertMessage(info *types.MessageInfo, msg *waE2E.Messag
 			text,
 			emc != nil,
 			replyToMessageID,
+			quotedMessageJSON,
 			false,
 			forwarded,
 			messageType,
@@ -800,7 +812,7 @@ func (ms *MessageStore) UpdateMessageContent(messageID string, content *waE2E.Me
 		width, height  int
 	)
 
-	text, fileName, _, _, emc, mediaType, width, height = extractMessageContent(content)
+	text, fileName, _, _, emc, mediaType, width, height, _ = extractMessageContent(content)
 
 	if text == "" {
 		return nil
@@ -1301,7 +1313,7 @@ func (ms *MessageStore) AddReactionToMessage(targetID, reaction, senderJID strin
 }
 
 // extractMessageContent extracts text, reply info, and media from a WhatsApp message
-func extractMessageContent(msg *waE2E.Message) (text, fileName, replyToMessageID string, forwarded bool, emc wa.ExtendedMediaContent, mediaType mtypes.MediaType, width, height int) {
+func extractMessageContent(msg *waE2E.Message) (text, fileName, replyToMessageID string, forwarded bool, emc wa.ExtendedMediaContent, mediaType mtypes.MediaType, width, height int, quotedMessageJSON string) {
 	switch {
 	case msg.GetConversation() != "":
 		text = msg.GetConversation()
@@ -1310,6 +1322,12 @@ func extractMessageContent(msg *waE2E.Message) (text, fileName, replyToMessageID
 		text = msg.GetExtendedTextMessage().GetText()
 		replyToMessageID = contextInfo.GetStanzaID()
 		forwarded = contextInfo.GetIsForwarded()
+		if contextInfo.QuotedMessage != nil {
+			opts := proto.MarshalOptions{}
+			if b, err := opts.Marshal(contextInfo.QuotedMessage); err == nil {
+				quotedMessageJSON = string(b)
+			}
+		}
 	}
 
 	switch {
@@ -1319,9 +1337,15 @@ func extractMessageContent(msg *waE2E.Message) (text, fileName, replyToMessageID
 		width = int(msg.GetImageMessage().GetWidth())
 		height = int(msg.GetImageMessage().GetHeight())
 		mediaType = mtypes.MediaTypeImage
-		if contextInfo := msg.GetImageMessage().GetContextInfo(); contextInfo != nil {
-			replyToMessageID = contextInfo.GetStanzaID()
-			forwarded = contextInfo.GetIsForwarded()
+		if ci := msg.GetImageMessage().GetContextInfo(); ci != nil {
+			replyToMessageID = ci.GetStanzaID()
+			forwarded = ci.GetIsForwarded()
+			if ci.QuotedMessage != nil {
+				opts := proto.MarshalOptions{}
+			if b, err := opts.Marshal(ci.QuotedMessage); err == nil {
+					quotedMessageJSON = string(b)
+				}
+			}
 		}
 	case msg.GetVideoMessage() != nil:
 		emc = msg.GetVideoMessage()
@@ -1332,6 +1356,12 @@ func extractMessageContent(msg *waE2E.Message) (text, fileName, replyToMessageID
 		if contextInfo := msg.GetVideoMessage().GetContextInfo(); contextInfo != nil {
 			replyToMessageID = contextInfo.GetStanzaID()
 			forwarded = contextInfo.GetIsForwarded()
+			if contextInfo.QuotedMessage != nil {
+				opts := proto.MarshalOptions{}
+			if b, err := opts.Marshal(contextInfo.QuotedMessage); err == nil {
+					quotedMessageJSON = string(b)
+				}
+			}
 		}
 	case msg.GetDocumentMessage() != nil:
 		emc = msg.GetDocumentMessage()
@@ -1341,6 +1371,12 @@ func extractMessageContent(msg *waE2E.Message) (text, fileName, replyToMessageID
 		if contextInfo := msg.GetDocumentMessage().GetContextInfo(); contextInfo != nil {
 			replyToMessageID = contextInfo.GetStanzaID()
 			forwarded = contextInfo.GetIsForwarded()
+			if contextInfo.QuotedMessage != nil {
+				opts := proto.MarshalOptions{}
+			if b, err := opts.Marshal(contextInfo.QuotedMessage); err == nil {
+					quotedMessageJSON = string(b)
+				}
+			}
 		}
 	case msg.GetAudioMessage() != nil:
 		emc = msg.GetAudioMessage()
@@ -1348,6 +1384,12 @@ func extractMessageContent(msg *waE2E.Message) (text, fileName, replyToMessageID
 		if contextInfo := msg.GetAudioMessage().GetContextInfo(); contextInfo != nil {
 			replyToMessageID = contextInfo.GetStanzaID()
 			forwarded = contextInfo.GetIsForwarded()
+			if contextInfo.QuotedMessage != nil {
+				opts := proto.MarshalOptions{}
+			if b, err := opts.Marshal(contextInfo.QuotedMessage); err == nil {
+					quotedMessageJSON = string(b)
+				}
+			}
 		}
 	case msg.GetPtvMessage() != nil:
 		// Round video notes are plain VideoMessages in a different envelope.
@@ -1358,6 +1400,12 @@ func extractMessageContent(msg *waE2E.Message) (text, fileName, replyToMessageID
 		if contextInfo := msg.GetPtvMessage().GetContextInfo(); contextInfo != nil {
 			replyToMessageID = contextInfo.GetStanzaID()
 			forwarded = contextInfo.GetIsForwarded()
+			if contextInfo.QuotedMessage != nil {
+				opts := proto.MarshalOptions{}
+			if b, err := opts.Marshal(contextInfo.QuotedMessage); err == nil {
+					quotedMessageJSON = string(b)
+				}
+			}
 		}
 	case msg.GetStickerMessage() != nil:
 		emc = msg.GetStickerMessage()
@@ -1367,6 +1415,12 @@ func extractMessageContent(msg *waE2E.Message) (text, fileName, replyToMessageID
 		if contextInfo := msg.GetStickerMessage().GetContextInfo(); contextInfo != nil {
 			replyToMessageID = contextInfo.GetStanzaID()
 			forwarded = contextInfo.GetIsForwarded()
+			if contextInfo.QuotedMessage != nil {
+				opts := proto.MarshalOptions{}
+			if b, err := opts.Marshal(contextInfo.QuotedMessage); err == nil {
+					quotedMessageJSON = string(b)
+				}
+			}
 		}
 	default:
 		if text == "" {
@@ -1378,13 +1432,14 @@ func extractMessageContent(msg *waE2E.Message) (text, fileName, replyToMessageID
 }
 
 type decodedPageRow struct {
-	message     DecodedMessage
-	text        string
-	fileName    string
-	width       int
-	height      int
-	gif         bool
-	linkPreview *DecodedLinkPreview
+	message          DecodedMessage
+	text             string
+	fileName         string
+	width            int
+	height           int
+	gif              bool
+	linkPreview      *DecodedLinkPreview
+	quotedMessageJSON string
 }
 
 type quotedContent struct {
@@ -1421,22 +1476,23 @@ func (ms *MessageStore) GetDecodedMessagesPaged(chatJID string, beforeTimestamp 
 
 	for rows.Next() {
 		var (
-			msgID              string
-			chatJIDRow         string
-			senderJID          string
-			timestamp          int64
-			isFromMe           bool
-			text               sql.NullString
-			replyTo            sql.NullString
-			edited, forwarded  bool
-			msgType            sql.NullInt32
-			fileName           sql.NullString
-			width, height      sql.NullInt64
-			gif                sql.NullBool
-			previewURL         sql.NullString
-			previewTitle       sql.NullString
-			previewDescription sql.NullString
-			previewHasPoster   sql.NullBool
+			msgID                  string
+			chatJIDRow             string
+			senderJID              string
+			timestamp              int64
+			isFromMe               bool
+			text                   sql.NullString
+			replyTo                sql.NullString
+			quotedMessageJSON      sql.NullString
+			edited, forwarded      bool
+			msgType                sql.NullInt32
+			fileName               sql.NullString
+			width, height          sql.NullInt64
+			gif                    sql.NullBool
+			previewURL             sql.NullString
+			previewTitle           sql.NullString
+			previewDescription     sql.NullString
+			previewHasPoster       sql.NullBool
 		)
 
 		err := rows.Scan(
@@ -1447,6 +1503,7 @@ func (ms *MessageStore) GetDecodedMessagesPaged(chatJID string, beforeTimestamp 
 			&isFromMe,
 			&text,
 			&replyTo,
+			&quotedMessageJSON,
 			&edited,
 			&forwarded,
 			&msgType,
@@ -1485,12 +1542,13 @@ func (ms *MessageStore) GetDecodedMessagesPaged(chatJID string, beforeTimestamp 
 					Chat:      chatJIDRow,
 				},
 			},
-			text:        text.String,
-			fileName:    fileName.String,
-			width:       int(width.Int64),
-			height:      int(height.Int64),
-			gif:         gif.Bool,
-			linkPreview: linkPreview,
+			text:              text.String,
+			fileName:          fileName.String,
+			width:             int(width.Int64),
+			height:            int(height.Int64),
+			gif:               gif.Bool,
+			linkPreview:       linkPreview,
+			quotedMessageJSON: quotedMessageJSON.String,
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -1531,7 +1589,13 @@ func (ms *MessageStore) GetDecodedMessagesPaged(chatJID string, beforeTimestamp 
 		var contextInfo *ContextInfo
 		if replyID := item.message.ReplyToMessageID; replyID != "" {
 			contextInfo = &ContextInfo{StanzaID: replyID}
-			if quote, ok := quoted[replyID]; ok {
+			// Prefer stored quoted message JSON (for fake replies etc.)
+			if item.quotedMessageJSON != "" {
+				var qm waE2E.Message
+				if err := proto.Unmarshal([]byte(item.quotedMessageJSON), &qm); err == nil {
+					contextInfo.QuotedMessage = buildDecodedContentFromProto(&qm)
+				}
+			} else if quote, ok := quoted[replyID]; ok {
 				contextInfo.Participant = quote.sender
 				contextInfo.QuotedMessage = quote.content
 			}
@@ -1773,6 +1837,52 @@ func buildDecodedContentValues(
 	}
 
 	return content
+}
+
+// buildDecodedContentFromProto creates a DecodedMessageContent from a protobuf Message.
+// Used for restoring quoted messages stored as JSON (e.g., fake replies).
+func buildDecodedContentFromProto(msg *waE2E.Message) *DecodedMessageContent {
+	if msg == nil {
+		return nil
+	}
+
+	text := ExtractMessageText(msg)
+
+	var mediaType mtypes.MediaType
+	var width, height int
+	var gifPlayback bool
+
+	switch {
+	case msg.GetConversation() != "":
+		mediaType = mtypes.MediaTypeNone
+	case msg.GetExtendedTextMessage() != nil:
+		mediaType = mtypes.MediaTypeNone
+	case msg.GetImageMessage() != nil:
+		mediaType = mtypes.MediaTypeImage
+		width = int(msg.GetImageMessage().GetWidth())
+		height = int(msg.GetImageMessage().GetHeight())
+	case msg.GetVideoMessage() != nil:
+		mediaType = mtypes.MediaTypeVideo
+		width = int(msg.GetVideoMessage().GetWidth())
+		height = int(msg.GetVideoMessage().GetHeight())
+		gifPlayback = msg.GetVideoMessage().GetGifPlayback()
+	case msg.GetDocumentMessage() != nil:
+		mediaType = mtypes.MediaTypeDocument
+	case msg.GetAudioMessage() != nil:
+		mediaType = mtypes.MediaTypeAudio
+	case msg.GetPtvMessage() != nil:
+		mediaType = mtypes.MediaTypeVideo
+		width = int(msg.GetPtvMessage().GetWidth())
+		height = int(msg.GetPtvMessage().GetHeight())
+	case msg.GetStickerMessage() != nil:
+		mediaType = mtypes.MediaTypeSticker
+		width = int(msg.GetStickerMessage().GetWidth())
+		height = int(msg.GetStickerMessage().GetHeight())
+	default:
+		mediaType = mtypes.MediaTypeNone
+	}
+
+	return buildDecodedContentValues(text, "", mediaType, width, height, gifPlayback, nil)
 }
 
 // mediaDimensions returns the stored intrinsic width/height for a media
@@ -2154,4 +2264,216 @@ func (ms *MessageStore) MarkMessageDeleted(messageID string) error {
 		`UPDATE messages SET text = ?, has_media = 0 WHERE message_id = ?`,
 		`<i>🚫 This message was deleted</i>`, messageID)
 	return err
+}
+
+// ====================== Auto-Responder ======================
+
+type AutoResponderRule struct {
+	ID                   int64
+	Name                 string
+	Enabled              bool
+	MatchType            string // "keyword", "exact", "contains", "all"
+	Keyword              string
+	ResponseText         string
+	ChatJID              string
+	RespondToSelf        bool
+	RespondToGroups      bool
+	RespondToContacts    bool
+	CooldownSeconds      int64
+	CreatedAt            int64
+	UpdatedAt            int64
+}
+
+func (ms *MessageStore) CreateAutoResponderTables() error {
+	_, err := ms.db.Exec(query.CreateAutoResponderRulesTable)
+	return err
+}
+
+func (ms *MessageStore) InsertAutoResponderRule(rule *AutoResponderRule) (int64, error) {
+	res, err := ms.db.Exec(
+		query.InsertAutoResponderRule,
+		rule.Name, rule.Enabled, rule.MatchType, rule.Keyword, rule.ResponseText,
+		rule.ChatJID, rule.RespondToSelf, rule.RespondToGroups, rule.RespondToContacts,
+		rule.CooldownSeconds, rule.CreatedAt, rule.UpdatedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (ms *MessageStore) UpdateAutoResponderRule(rule *AutoResponderRule) error {
+	_, err := ms.db.Exec(
+		query.UpdateAutoResponderRule,
+		rule.Name, rule.Enabled, rule.MatchType, rule.Keyword, rule.ResponseText,
+		rule.ChatJID, rule.RespondToSelf, rule.RespondToGroups, rule.RespondToContacts,
+		rule.CooldownSeconds, rule.UpdatedAt, rule.ID,
+	)
+	return err
+}
+
+func (ms *MessageStore) DeleteAutoResponderRule(id int64) error {
+	_, err := ms.db.Exec(query.DeleteAutoResponderRule, id)
+	return err
+}
+
+func (ms *MessageStore) GetAllAutoResponderRules() ([]AutoResponderRule, error) {
+	rows, err := ms.db.Query(query.SelectAllAutoResponderRules)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var rules []AutoResponderRule
+	for rows.Next() {
+		var r AutoResponderRule
+		if err := rows.Scan(
+			&r.ID, &r.Name, &r.Enabled, &r.MatchType, &r.Keyword, &r.ResponseText,
+			&r.ChatJID, &r.RespondToSelf, &r.RespondToGroups, &r.RespondToContacts,
+			&r.CooldownSeconds, &r.CreatedAt, &r.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		rules = append(rules, r)
+	}
+	return rules, nil
+}
+
+func (ms *MessageStore) GetEnabledAutoResponderRules() ([]AutoResponderRule, error) {
+	rows, err := ms.db.Query(query.SelectEnabledAutoResponderRules)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var rules []AutoResponderRule
+	for rows.Next() {
+		var r AutoResponderRule
+		if err := rows.Scan(
+			&r.ID, &r.Name, &r.MatchType, &r.Keyword, &r.ResponseText,
+			&r.ChatJID, &r.RespondToSelf, &r.RespondToGroups, &r.RespondToContacts,
+			&r.CooldownSeconds,
+		); err != nil {
+			return nil, err
+		}
+		r.Enabled = true
+		rules = append(rules, r)
+	}
+	return rules, nil
+}
+
+// ====================== Message Scheduler ======================
+
+type ScheduledMessage struct {
+	ID          int64
+	ChatJID     string
+	MessageType int
+	TextContent string
+	MediaPath   string
+	MimeType    string
+	FileName    string
+	ScheduledAt int64
+	SentAt      int64
+	Status      string
+	RetryCount  int
+	CreatedAt   int64
+}
+
+func (ms *MessageStore) CreateSchedulerTables() error {
+	_, err := ms.db.Exec(query.CreateScheduledMessagesTable)
+	return err
+}
+
+func (ms *MessageStore) InsertScheduledMessage(msg *ScheduledMessage) (int64, error) {
+	res, err := ms.db.Exec(
+		query.InsertScheduledMessage,
+		msg.ChatJID, msg.MessageType, msg.TextContent, msg.MediaPath,
+		msg.MimeType, msg.FileName, msg.ScheduledAt, msg.CreatedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (ms *MessageStore) UpdateScheduledMessage(msg *ScheduledMessage) error {
+	_, err := ms.db.Exec(
+		query.UpdateScheduledMessage,
+		msg.ChatJID, msg.MessageType, msg.TextContent, msg.MediaPath,
+		msg.MimeType, msg.FileName, msg.ScheduledAt, msg.Status, msg.ID,
+	)
+	return err
+}
+
+func (ms *MessageStore) DeleteScheduledMessage(id int64) error {
+	_, err := ms.db.Exec(query.DeleteScheduledMessage, id)
+	return err
+}
+
+func (ms *MessageStore) GetAllScheduledMessages() ([]ScheduledMessage, error) {
+	rows, err := ms.db.Query(query.SelectAllScheduledMessages)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var msgs []ScheduledMessage
+	for rows.Next() {
+		var m ScheduledMessage
+		if err := rows.Scan(
+			&m.ID, &m.ChatJID, &m.MessageType, &m.TextContent, &m.MediaPath,
+			&m.MimeType, &m.FileName, &m.ScheduledAt, &m.SentAt, &m.Status,
+			&m.RetryCount, &m.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		msgs = append(msgs, m)
+	}
+	return msgs, nil
+}
+
+func (ms *MessageStore) GetPendingScheduledMessages(beforeTime int64) ([]ScheduledMessage, error) {
+	rows, err := ms.db.Query(query.SelectPendingScheduledMessages, beforeTime)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var msgs []ScheduledMessage
+	for rows.Next() {
+		var m ScheduledMessage
+		if err := rows.Scan(
+			&m.ID, &m.ChatJID, &m.MessageType, &m.TextContent, &m.MediaPath,
+			&m.MimeType, &m.FileName, &m.ScheduledAt, &m.Status, &m.RetryCount,
+		); err != nil {
+			return nil, err
+		}
+		msgs = append(msgs, m)
+	}
+	return msgs, nil
+}
+
+func (ms *MessageStore) UpdateScheduledMessageStatus(id int64, status string, sentAt int64) error {
+	_, err := ms.db.Exec(query.UpdateScheduledMessageStatus, status, sentAt, id)
+	return err
+}
+
+// ====================== Voice Transcription ======================
+
+func (ms *MessageStore) CreateTranscriptionTables() error {
+	_, err := ms.db.Exec(query.CreateVoiceTranscriptionCacheTable)
+	return err
+}
+
+func (ms *MessageStore) SaveVoiceTranscription(messageID, chatJID, text, language string) error {
+	_, err := ms.db.Exec(
+		query.InsertVoiceTranscription,
+		messageID, chatJID, text, language, time.Now().Unix(),
+	)
+	return err
+}
+
+func (ms *MessageStore) GetVoiceTranscription(messageID string) (text, language string, err error) {
+	err = ms.db.QueryRow(query.SelectVoiceTranscription, messageID).Scan(&text, &language)
+	return
 }

@@ -6,8 +6,10 @@ import {
   DownloadMedia,
   GetVideoThumbnail,
   GetImageThumbnail,
+  TranscribeVoiceMessage,
 } from "../../../wailsjs/go/api/Api"
 import { useUIStore } from "../../store"
+import { useAppSettingsStore } from "../../store/useAppSettingsStore"
 import { LRUCache } from "../../lib/lruCache"
 
 // TODO: fix word wrap for longer words in content
@@ -189,6 +191,24 @@ export function MediaContent({
   const placeholderRef = useRef<HTMLDivElement | null>(null)
   const openLightbox = useUIStore(s => s.openLightbox)
   const handleDownloadRef = useRef<(() => Promise<string | null>) | null>(null)
+
+  // Voice transcription state
+  const [transcription, setTranscription] = useState<string | null>(null)
+  const [transcribing, setTranscribing] = useState(false)
+  const { voiceTranscription } = useAppSettingsStore()
+  const transcribeAudio = useCallback(async () => {
+    if (!voiceTranscription || transcribing || transcription) return
+    setTranscribing(true)
+    try {
+      const text = await TranscribeVoiceMessage(message.Info.ID, chatId, "")
+      setTranscription(text)
+    } catch (err) {
+      console.error("Transcription failed:", err)
+      setTranscription("Transcription failed")
+    } finally {
+      setTranscribing(false)
+    }
+  }, [chatId, message.Info.ID, voiceTranscription, transcribing, transcription])
 
   // Reserve the final layout box before the media loads. Only images and GIF
   // videos swap a placeholder for an inline element, so only they can shift.
@@ -525,19 +545,49 @@ export function MediaContent({
     return (
       <div
         ref={placeholderRef}
-        className="w-75 h-14 rounded-lg bg-gray-200 dark:bg-gray-800 flex items-center justify-center"
+        className="w-75 rounded-lg bg-gray-200 dark:bg-gray-800 p-2"
       >
-        {loading ? (
-          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-500" />
-        ) : (
-          <button
-            onClick={() => void handleDownload()}
-            className="bg-black/50 p-2 rounded-full text-white hover:bg-black/70"
-          >
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-              <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" />
-            </svg>
-          </button>
+        <div className="flex items-center gap-2">
+          {loading ? (
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-500" />
+          ) : (
+            <>
+              <button
+                onClick={() => void handleDownload()}
+                className="bg-black/50 p-2 rounded-full text-white hover:bg-black/70 flex-shrink-0"
+              >
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                  <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" />
+                </svg>
+              </button>
+              <audio
+                src={mediaSrc}
+                controls
+                className="flex-1 min-w-0 h-10"
+                onLoadedData={() => setLoading(false)}
+              />
+              {voiceTranscription && !transcription && !transcribing && (
+                <button
+                  onClick={transcribeAudio}
+                  className="px-2 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600 flex-shrink-0"
+                  title="Transcribe voice message"
+                >
+                  Transcribe
+                </button>
+              )}
+              {transcribing && (
+                <div className="flex items-center gap-1 text-xs text-gray-500 flex-shrink-0">
+                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-green-500" />
+                  Transcribing...
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        {transcription && (
+          <div className="mt-2 p-2 text-xs text-gray-700 dark:text-gray-300 bg-white/50 dark:bg-gray-700/50 rounded border border-gray-200 dark:border-gray-600 max-h-24 overflow-y-auto">
+            {transcription}
+          </div>
         )}
       </div>
     )

@@ -6,11 +6,6 @@ import {
   SendReaction,
   SetMessagePinned,
 } from "../../../wailsjs/go/api/Api"
-import { MediaContent } from "./MediaContent"
-import { QuotedMessage } from "./QuotedMessage"
-import { ReactionBubble, ReactionDetails } from "./Reactions"
-import { LinkPreview } from "./LinkPreview"
-import { PollCard } from "./PollCard"
 import clsx from "clsx"
 import { MessageMenu } from "./MessageMenu"
 import {
@@ -25,8 +20,15 @@ import { isMe } from "../../lib/self"
 import { formatPhone, phoneFromJID } from "../../lib/utils"
 import { LRUCache } from "../../lib/lruCache"
 
+const MediaContent = lazy(() => import("./MediaContent").then(m => ({ default: m.MediaContent })))
+const QuotedMessage = lazy(() => import("./QuotedMessage").then(m => ({ default: m.QuotedMessage })))
+const ReactionBubble = lazy(() => import("./Reactions").then(m => ({ default: m.ReactionBubble })))
+const ReactionDetails = lazy(() => import("./Reactions").then(m => ({ default: m.ReactionDetails })))
+const LinkPreview = lazy(() => import("./LinkPreview").then(m => ({ default: m.LinkPreview })))
+const PollCard = lazy(() => import("./PollCard").then(m => ({ default: m.PollCard })))
+const EmojiPicker = lazy(() => import("./EmojiPickerLazy").then(m => ({ default: m.EmojiPicker })))
+
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"]
-const EmojiPicker = lazy(() => import("./EmojiPickerLazy"))
 
 interface MessageItemProps {
   message: store.DecodedMessage
@@ -36,6 +38,7 @@ interface MessageItemProps {
   sentMediaCache: React.MutableRefObject<Map<string, string>>
   onReply?: (message: store.DecodedMessage) => void
   onQuotedClick?: (messageId: string) => void
+  onDelete?: (message: store.DecodedMessage) => void
   highlightedMessageId?: string | null
 }
 
@@ -119,6 +122,7 @@ export function MessageItem({
   sentMediaCache,
   onReply,
   onQuotedClick,
+  onDelete,
   highlightedMessageId,
 }: MessageItemProps) {
   const isFromMe = message.Info.IsFromMe
@@ -258,13 +262,15 @@ export function MessageItem({
       if (message.poll) {
         return (
           <div className="flow-root">
-            <PollCard
-              pollName={message.poll.name}
-              options={message.poll.options}
-              selectableCount={message.poll.selectableCount}
-              messageId={message.Info.ID}
-              votes={message.poll.votes}
-            />
+            <Suspense fallback={<div className="h-8" />}>
+              <PollCard
+                pollName={message.poll.name}
+                options={message.poll.options}
+                selectableCount={message.poll.selectableCount}
+                messageId={message.Info.ID}
+                votes={message.poll.votes}
+              />
+            </Suspense>
             {timeMeta(true)}
           </div>
         )
@@ -313,53 +319,63 @@ export function MessageItem({
             )}
           </div>
           {htmlContent.includes('class="msg-link"') && (
-            <LinkPreview messageId={message.Info.ID} preview={message.link_preview ?? null} />
+            <Suspense fallback={<div className="h-8" />}>
+              <LinkPreview messageId={message.Info.ID} preview={message.link_preview ?? null} />
+            </Suspense>
           )}
         </>
       )
     } else if (content.imageMessage)
       return (
         <div className="flex flex-col">
-          <MediaContent
-            message={message}
-            type="image"
-            chatId={chatId}
-            sentMediaCache={sentMediaCache}
-            onDownload={handleImageDownload}
-          />
+          <Suspense fallback={<div className="aspect-[4/3] bg-gray-200 dark:bg-gray-700 rounded" />}>
+            <MediaContent
+              message={message}
+              type="image"
+              chatId={chatId}
+              sentMediaCache={sentMediaCache}
+              onDownload={handleImageDownload}
+            />
+          </Suspense>
           {renderCaption(content.imageMessage.caption)}
         </div>
       )
     else if (content.videoMessage)
       return (
         <div className="flex flex-col">
-          <MediaContent
-            message={message}
-            type="video"
-            chatId={chatId}
-            isGif={!!content.videoMessage.gifPlayback}
-            sentMediaCache={sentMediaCache}
-          />
+          <Suspense fallback={<div className="aspect-[16/9] bg-gray-200 dark:bg-gray-700 rounded" />}>
+            <MediaContent
+              message={message}
+              type="video"
+              chatId={chatId}
+              isGif={!!content.videoMessage.gifPlayback}
+              sentMediaCache={sentMediaCache}
+            />
+          </Suspense>
           {renderCaption(content.videoMessage.caption)}
         </div>
       )
     else if (content.audioMessage)
       return (
-        <MediaContent
-          message={message}
-          type="audio"
-          chatId={chatId}
-          sentMediaCache={sentMediaCache}
-        />
+        <Suspense fallback={<div className="h-12" />}>
+          <MediaContent
+            message={message}
+            type="audio"
+            chatId={chatId}
+            sentMediaCache={sentMediaCache}
+          />
+        </Suspense>
       )
     else if (content.stickerMessage)
       return (
-        <MediaContent
-          message={message}
-          type="sticker"
-          chatId={chatId}
-          sentMediaCache={sentMediaCache}
-        />
+        <Suspense fallback={<div className="aspect-square bg-gray-200 dark:bg-gray-700 rounded" />}>
+          <MediaContent
+            message={message}
+            type="sticker"
+            chatId={chatId}
+            sentMediaCache={sentMediaCache}
+          />
+        </Suspense>
       )
     else if (content.documentMessage) {
       const doc = content.documentMessage
@@ -527,6 +543,7 @@ export function MessageItem({
             onReply={handleReply}
             onCopy={handleCopy}
             onReact={handleReact}
+            onDelete={onDelete ? () => onDelete(message) : undefined}
           />
 
           {!isFromMe && chatId.endsWith("@g.us") && firstInGroup && (
@@ -550,7 +567,9 @@ export function MessageItem({
             </div>
           )}
           {contextInfo?.quotedMessage && (
-            <QuotedMessage contextInfo={contextInfo} onQuotedClick={onQuotedClick} />
+            <Suspense fallback={<div className="h-6" />}>
+              <QuotedMessage contextInfo={contextInfo} onQuotedClick={onQuotedClick} />
+            </Suspense>
           )}
           <div className="text-sm wrap-break-words whitespace-pre-wrap">{renderContent()}</div>
           {!isTextContent && <div className="mt-1 flex justify-end">{timeMeta(false)}</div>}
@@ -565,20 +584,24 @@ export function MessageItem({
                 isFromMe ? "right-2" : "left-2",
               )}
             >
-              <ReactionBubble reactions={reactions} isFromMe={isFromMe} />
+              <Suspense fallback={<div className="h-6" />}>
+                <ReactionBubble reactions={reactions} isFromMe={isFromMe} />
+              </Suspense>
             </div>
           )}
 
           {showReactionDetails && reactions.length > 0 && (
-            <ReactionDetails
-              reactions={reactions}
-              isFromMe={isFromMe}
-              messageText={(content?.conversation || content?.extendedTextMessage?.text || "")
-                .replace(/<[^>]*>/g, "")
-                .replace(/&\w+;/g, "")}
-              anchorRef={reactionPillRef}
-              onClose={() => setShowReactionDetails(false)}
-            />
+            <Suspense fallback={<div className="h-20" />}>
+              <ReactionDetails
+                reactions={reactions}
+                isFromMe={isFromMe}
+                messageText={(content?.conversation || content?.extendedTextMessage?.text || "")
+                  .replace(/<[^>]*>/g, "")
+                  .replace(/&\w+;/g, "")}
+                anchorRef={reactionPillRef}
+                onClose={() => setShowReactionDetails(false)}
+              />
+            </Suspense>
           )}
         </div>
       </div>

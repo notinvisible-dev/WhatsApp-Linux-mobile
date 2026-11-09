@@ -13,6 +13,7 @@ const (
 		text TEXT,
 		has_media BOOLEAN DEFAULT FALSE,
 		reply_to_message_id TEXT,
+		quoted_message_json TEXT,
 		edited BOOLEAN DEFAULT FALSE,
 		forwarded BOOLEAN DEFAULT FALSE,
 		type INTEGER DEFAULT 0
@@ -25,8 +26,8 @@ const (
 
 	InsertMessage = `
 	INSERT OR REPLACE INTO messages 
-	(message_id, chat_jid, sender_jid, timestamp, is_from_me, text, has_media, reply_to_message_id, edited, forwarded, type)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	(message_id, chat_jid, sender_jid, timestamp, is_from_me, text, has_media, reply_to_message_id, quoted_message_json, edited, forwarded, type)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	UpdateMessage = `
@@ -69,14 +70,14 @@ const (
 
 	// Messages.db paged queries (for frontend)
 	SelectMessagesByChatBeforeCursor = `
-	SELECT m.message_id, m.chat_jid, m.sender_jid, m.timestamp, m.is_from_me, m.text, m.reply_to_message_id, m.edited, m.forwarded,
+	SELECT m.message_id, m.chat_jid, m.sender_jid, m.timestamp, m.is_from_me, m.text, m.reply_to_message_id, m.quoted_message_json, m.edited, m.forwarded,
 	       mm.type, mm.file_name, mm.width, mm.height, mm.gif_playback,
 	       lp.url, lp.title, lp.description,
 	       CASE WHEN length(COALESCE(lp.thumbnail, x'')) > 0 OR
 	                      (COALESCE(lp.direct_path, '') <> '' AND length(COALESCE(lp.media_key, x'')) > 0)
 	            THEN 1 ELSE 0 END
 	FROM (
-		SELECT message_id, chat_jid, sender_jid, timestamp, is_from_me, text, reply_to_message_id, edited, forwarded
+		SELECT message_id, chat_jid, sender_jid, timestamp, is_from_me, text, reply_to_message_id, quoted_message_json, edited, forwarded
 		FROM messages
 		WHERE chat_jid = ?
 		  AND (timestamp < ? OR (timestamp = ? AND message_id < ?))
@@ -89,14 +90,14 @@ const (
 	`
 
 	SelectLatestMessagesByChat = `
-	SELECT m.message_id, m.chat_jid, m.sender_jid, m.timestamp, m.is_from_me, m.text, m.reply_to_message_id, m.edited, m.forwarded,
+	SELECT m.message_id, m.chat_jid, m.sender_jid, m.timestamp, m.is_from_me, m.text, m.reply_to_message_id, m.quoted_message_json, m.edited, m.forwarded,
 	       mm.type, mm.file_name, mm.width, mm.height, mm.gif_playback,
 	       lp.url, lp.title, lp.description,
 	       CASE WHEN length(COALESCE(lp.thumbnail, x'')) > 0 OR
 	                      (COALESCE(lp.direct_path, '') <> '' AND length(COALESCE(lp.media_key, x'')) > 0)
 	            THEN 1 ELSE 0 END
 	FROM (
-		SELECT message_id, chat_jid, sender_jid, timestamp, is_from_me, text, reply_to_message_id, edited, forwarded
+		SELECT message_id, chat_jid, sender_jid, timestamp, is_from_me, text, reply_to_message_id, quoted_message_json, edited, forwarded
 		FROM messages
 		WHERE chat_jid = ?
 		ORDER BY timestamp DESC, message_id DESC

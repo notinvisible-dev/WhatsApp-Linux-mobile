@@ -11,18 +11,41 @@ import (
 	"github.com/lugvitc/whats4linux/internal/misc"
 )
 
-// notificationsKey is the app_settings.json key for the global
-// notifications on/off switch.
-const notificationsKey = "notifications_enabled"
+// Keys for settings that are read on hot backend paths. They are cached in
+// atomics so those paths never touch the settings map (which is not safe for
+// concurrent access).
+const (
+	notificationsKey       = "notifications_enabled"
+	keepDeletedMessagesKey = "keepDeletedMessages"
+	hideTypingIndicatorKey = "hideTypingIndicator"
+	appearOfflineKey       = "appearOffline"
+	readReceiptsKey        = "readReceipts"
+	autoResponderKey       = "autoResponder"
+	messageSchedulerKey    = "messageScheduler"
+	voiceTranscriptionKey  = "voiceTranscription"
+	fakeRepliesKey         = "fakeReplies"
+)
 
-// notificationsEnabled caches the global notification switch so the hot
-// notify path can read it without touching the settings map (which is not
-// safe for concurrent access).
-var notificationsEnabled atomic.Bool
+var (
+	notificationsEnabled   atomic.Bool
+	keepDeletedMessages    atomic.Bool
+	hideTypingIndicator    atomic.Bool
+	appearOffline          atomic.Bool
+	readReceipts           atomic.Bool
+	autoResponderEnabled   atomic.Bool
+	messageSchedulerEnabled atomic.Bool
+	voiceTranscriptionEnabled atomic.Bool
+	fakeRepliesEnabled     atomic.Bool
+)
 
 func init() {
-	// Default to enabled until LoadSettings reads the persisted value.
+	// Defaults until LoadSettings reads the persisted values.
 	notificationsEnabled.Store(true)
+	readReceipts.Store(true)
+	autoResponderEnabled.Store(false)
+	messageSchedulerEnabled.Store(false)
+	voiceTranscriptionEnabled.Store(false)
+	fakeRepliesEnabled.Store(false)
 }
 
 type settings struct {
@@ -44,7 +67,7 @@ func LoadSettings() {
 
 	decoder := json.NewDecoder(settingsInstance.f)
 	_ = decoder.Decode(&settingsInstance.data)
-	notificationsEnabled.Store(notificationsEnabledFrom(settingsInstance.data))
+	syncCachedSettings(settingsInstance.data)
 }
 
 func GetSettings() map[string]any {
@@ -58,15 +81,27 @@ func SaveSettings(data map[string]any) error {
 	// The frontend saves its own settings snapshot, which doesn't include
 	// backend-owned keys — carry them over so a generic save can't clobber
 	// them (that reset the notification switch back to its default).
-	if _, ok := data[notificationsKey]; !ok {
-		if cur, ok := settingsInstance.data[notificationsKey]; ok {
-			data[notificationsKey] = cur
+	for _, key := range []string{
+		notificationsKey,
+		keepDeletedMessagesKey,
+		hideTypingIndicatorKey,
+		appearOfflineKey,
+		readReceiptsKey,
+		autoResponderKey,
+		messageSchedulerKey,
+		voiceTranscriptionKey,
+		fakeRepliesKey,
+	} {
+		if _, ok := data[key]; !ok {
+			if cur, ok := settingsInstance.data[key]; ok {
+				data[key] = cur
+			}
 		}
 	}
 	settingsInstance.data = data
-	// Keep the cached switch in sync in case the whole settings map was
+	// Keep the cached switches in sync in case the whole settings map was
 	// replaced by the frontend.
-	notificationsEnabled.Store(notificationsEnabledFrom(data))
+	syncCachedSettings(data)
 
 	return settingsInstance.writeLocked()
 }
@@ -97,15 +132,70 @@ func SetNotificationsEnabled(enabled bool) error {
 	return settingsInstance.writeLocked()
 }
 
-// notificationsEnabledFrom extracts the switch from a settings map, defaulting
-// to true when unset or of an unexpected type.
-func notificationsEnabledFrom(data map[string]any) bool {
-	if v, ok := data[notificationsKey]; ok {
+// syncCachedSettings refreshes every cached setting from a settings map.
+func syncCachedSettings(data map[string]any) {
+	notificationsEnabled.Store(boolFrom(data, notificationsKey, true))
+	keepDeletedMessages.Store(boolFrom(data, keepDeletedMessagesKey, false))
+	hideTypingIndicator.Store(boolFrom(data, hideTypingIndicatorKey, false))
+	appearOffline.Store(boolFrom(data, appearOfflineKey, false))
+	readReceipts.Store(boolFrom(data, readReceiptsKey, true))
+	autoResponderEnabled.Store(boolFrom(data, autoResponderKey, false))
+	messageSchedulerEnabled.Store(boolFrom(data, messageSchedulerKey, false))
+	voiceTranscriptionEnabled.Store(boolFrom(data, voiceTranscriptionKey, false))
+	fakeRepliesEnabled.Store(boolFrom(data, fakeRepliesKey, false))
+}
+
+// boolFrom extracts a bool from a settings map, falling back to def when the
+// key is unset or of an unexpected type.
+func boolFrom(data map[string]any, key string, def bool) bool {
+	if v, ok := data[key]; ok {
 		if b, ok := v.(bool); ok {
 			return b
 		}
 	}
-	return true
+	return def
+}
+
+// GetKeepDeletedMessages reports whether revoked messages should be kept
+// instead of being replaced by the "This message was deleted" marker.
+func GetKeepDeletedMessages() bool {
+	return keepDeletedMessages.Load()
+}
+
+// GetHideTypingIndicator reports whether typing/paused presence should be
+// suppressed.
+func GetHideTypingIndicator() bool {
+	return hideTypingIndicator.Load()
+}
+
+// GetAppearOffline reports whether online presence should not be broadcast.
+func GetAppearOffline() bool {
+	return appearOffline.Load()
+}
+
+// GetReadReceipts reports whether read receipts should be sent.
+func GetReadReceipts() bool {
+	return readReceipts.Load()
+}
+
+// GetAutoResponderEnabled reports whether the auto-responder is active.
+func GetAutoResponderEnabled() bool {
+	return autoResponderEnabled.Load()
+}
+
+// GetMessageSchedulerEnabled reports whether the message scheduler is active.
+func GetMessageSchedulerEnabled() bool {
+	return messageSchedulerEnabled.Load()
+}
+
+// GetVoiceTranscriptionEnabled reports whether voice transcription is active.
+func GetVoiceTranscriptionEnabled() bool {
+	return voiceTranscriptionEnabled.Load()
+}
+
+// GetFakeRepliesEnabled reports whether fake replies mod is active.
+func GetFakeRepliesEnabled() bool {
+	return fakeRepliesEnabled.Load()
 }
 
 // writeLocked persists the current settings map to disk. The caller must hold

@@ -19,6 +19,7 @@ interface MessageListProps {
   sentMediaCache: React.MutableRefObject<Map<string, string>>
   onReply?: (message: store.DecodedMessage) => void
   onQuotedClick?: (messageId: string) => void
+  onDelete?: (message: store.DecodedMessage) => void
   onLoadMore?: () => void
   onAtBottomChange?: (atBottom: boolean) => void
   pinnedIds?: Set<string>
@@ -34,7 +35,7 @@ export interface MessageListHandle {
 
 const MemoizedMessageItem = memo(MessageItem)
 
-const OVERSCAN = { top: 800, bottom: 800 }
+const OVERSCAN = { top: 200, bottom: 200 }
 
 interface ListContext {
   isLoading?: boolean
@@ -73,6 +74,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
     sentMediaCache,
     onReply,
     onQuotedClick,
+    onDelete,
     onLoadMore,
     onAtBottomChange,
     pinnedIds,
@@ -168,6 +170,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
               sentMediaCache={sentMediaCache}
               onReply={onReply}
               onQuotedClick={onQuotedClick}
+              onDelete={onDelete}
               highlightedMessageId={highlightedMessageId}
             />
           </div>

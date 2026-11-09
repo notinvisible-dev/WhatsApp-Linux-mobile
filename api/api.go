@@ -590,8 +590,10 @@ func (a *Api) mainEventHandler(evt any) {
 		a.startBackground(a.repairGroupNames)
 		// Recover archive/pin/mute sync if the local app state is corrupted.
 		a.startBackground(a.resyncAppState)
-		if err := a.waClient.SendPresence(a.ctx, types.PresenceAvailable); err != nil {
-			log.Println("failed to send available presence:", err)
+		if !store.GetAppearOffline() {
+			if err := a.waClient.SendPresence(a.ctx, types.PresenceAvailable); err != nil {
+				log.Println("failed to send available presence:", err)
+			}
 		}
 		a.startBackground(func() { _, _ = a.GetSelfAvatar(false) })
 		// Run migration for messages.db
@@ -619,7 +621,9 @@ func (a *Api) mainEventHandler(evt any) {
 		}
 		runtime.EventsEmit(a.ctx, "wa:chat_list_refresh")
 	case *events.Disconnected:
-		a.waClient.SendPresence(a.ctx, types.PresenceUnavailable)
+		if !store.GetAppearOffline() {
+			a.waClient.SendPresence(a.ctx, types.PresenceUnavailable)
+		}
 	case *events.Receipt:
 		runtime.EventsEmit(a.ctx, "wa:message_receipt", map[string]any{
 			"chatId": v.Chat.String(),

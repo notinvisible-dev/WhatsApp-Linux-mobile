@@ -8,11 +8,14 @@ import {
   GetProfile,
   MarkRead,
   PlaceCall,
+  SendMessageWithFakeReply,
+  DeleteMessage,
 } from "../../wailsjs/go/api/Api"
 import { preloadImages, visibleImageIDs } from "../components/chat/MediaContent"
 import { store } from "../../wailsjs/go/models"
 import { EventsOn } from "../../wailsjs/runtime/runtime"
 import { useMessageStore, useUIStore, useChatStore } from "../store"
+import { useAppSettingsStore } from "../store/useAppSettingsStore"
 import { MessageList, type MessageListHandle } from "../components/chat/MessageList"
 import { ChatHeader } from "../components/chat/ChatHeader"
 import { ChatInput } from "../components/chat/ChatInput"
@@ -74,6 +77,15 @@ export function ChatDetail({ chatId, chatName, chatAvatar, onBack }: ChatDetailP
   const [replyingTo, setReplyingTo] = useState<store.DecodedMessage | null>(null)
   const [typingTimeout, setTypingTimeout] = useState<NodeJS.Timeout | null>(null)
 
+  // Fake reply mod state
+  const [fakeReplyOpen, setFakeReplyOpen] = useState(false)
+  const [fakeReplyStanzaId, setFakeReplyStanzaId] = useState("")
+  const [fakeReplyText, setFakeReplyText] = useState("")
+  const [fakeReplySenderName, setFakeReplySenderName] = useState("")
+  const [fakeReplySenderJid, setFakeReplySenderJid] = useState("")
+  const [fakeReplyBody, setFakeReplyBody] = useState("")
+
+  const { fakeReplies } = useAppSettingsStore()
   const [mentionableContacts, setMentionableContacts] = useState<any[]>([])
   const [selectedMentions, setSelectedMentions] = useState<any[]>([])
   const [hasMore, setHasMore] = useState(true)
@@ -606,6 +618,62 @@ export function ChatDetail({ chatId, chatName, chatAvatar, onBack }: ChatDetailP
     }
   }
 
+  const openFakeReply = () => {
+    if (replyingTo) {
+      setFakeReplyStanzaId(replyingTo.Info.ID)
+      setFakeReplyText("This is a fake message")
+      setFakeReplySenderName(replyingTo.Info.PushName || "Unknown")
+      setFakeReplySenderJid(replyingTo.Info.Sender)
+    } else {
+      setFakeReplyStanzaId(`FAKE-${Date.now()}`)
+      setFakeReplyText("This is a fake message")
+      setFakeReplySenderName("Unknown")
+      setFakeReplySenderJid("")
+    }
+    setFakeReplyBody(inputText)
+    setFakeReplyOpen(true)
+  }
+
+  const handleDeleteMessage = async (message: store.DecodedMessage) => {
+    try {
+      await DeleteMessage(chatId, message.Info.ID)
+      updateMessage(chatId, {
+        ...message,
+        Content: { conversation: "<i>🚫 This message was deleted</i>" },
+      })
+    } catch (err: any) {
+      console.error("Failed to delete message:", err)
+      alert("Delete failed: " + (err?.message || String(err)))
+    }
+  }
+
+  const confirmFakeReply = async () => {
+    const text = fakeReplyBody.trim()
+    if (!text) {
+      alert("Type the message you want to send.")
+      return
+    }
+    try {
+      await SendMessageWithFakeReply(chatId, text, {
+        stanza_id: fakeReplyStanzaId,
+        fake_text: fakeReplyText,
+        fake_sender_name: fakeReplySenderName,
+        fake_sender_jid: fakeReplySenderJid,
+      })
+      setInputText("")
+      setReplyingTo(null)
+      setFakeReplyOpen(false)
+      setFakeReplyStanzaId("")
+      setFakeReplyText("")
+      setFakeReplySenderName("")
+      setFakeReplySenderJid("")
+      setFakeReplyBody("")
+    } catch (err: any) {
+      console.error("Failed to send fake reply:", err)
+      alert("Fake reply failed: " + (err?.message || String(err)))
+    }
+  }
+
   useEffect(() => {
     const generation = ++requestGenerationRef.current
     loadingMoreRef.current = false
@@ -744,7 +812,7 @@ export function ChatDetail({ chatId, chatName, chatAvatar, onBack }: ChatDetailP
           </div>
         )}
 
-        <div className="flex-1 relative overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden relative">
           {/* Static chat wallpaper: painted once behind the list instead of
               scrolling (and repainting) with it — big scroll-perf win. */}
           <div className="chat-wallpaper absolute inset-0 pointer-events-none z-0" />
@@ -769,7 +837,7 @@ export function ChatDetail({ chatId, chatName, chatAvatar, onBack }: ChatDetailP
             </svg>
           </button>
 
-          <div className={clsx("relative z-10 h-full", (!isReady || initialLoad) && "invisible")}>
+          <div className={clsx("relative z-10 flex-1 min-h-0", (!isReady || initialLoad) && "invisible")}>
             <MessageList
               key={`${chatId}:${isReady ? "ready" : "loading"}`}
               ref={messageListRef}
@@ -779,6 +847,7 @@ export function ChatDetail({ chatId, chatName, chatAvatar, onBack }: ChatDetailP
               sentMediaCache={sentMediaCache}
               onReply={setReplyingTo}
               onQuotedClick={handleQuotedClick}
+              onDelete={handleDeleteMessage}
               onLoadMore={() => void loadMoreMessages()}
               onAtBottomChange={handleAtBottomChange}
               pinnedIds={pinnedIds}
@@ -862,6 +931,8 @@ export function ChatDetail({ chatId, chatName, chatAvatar, onBack }: ChatDetailP
           onCancelReply={() => setReplyingTo(null)}
           onMentionAdd={contact => setSelectedMentions(prev => [...prev, contact])}
           selectedMentions={selectedMentions}
+          showFakeReply={fakeReplies}
+          onOpenFakeReply={openFakeReply}
         />
       </div>
 
@@ -881,6 +952,105 @@ export function ChatDetail({ chatId, chatName, chatAvatar, onBack }: ChatDetailP
         chatId={chatId}
         chatType={chatType}
       />
+
+      {/* Fake Reply Modal */}
+      {fakeReplyOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white dark:bg-dark-bg rounded-xl p-6 w-full max-w-md mx-4">
+            <h2 className="text-xl font-semibold mb-4 text-light-text dark:text-dark-text">
+              Configure Fake Reply
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              Configure the fake message that will appear as the quoted message, then write the
+              reply to send.
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Your message
+                </label>
+                <textarea
+                  value={fakeReplyBody}
+                  onChange={e => setFakeReplyBody(e.target.value)}
+                  rows={3}
+                  className="w-full px-3 py-2 bg-white dark:bg-dark-tertiary border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="The message that will be sent as the reply"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Fake Stanza ID
+                </label>
+                <input
+                  type="text"
+                  value={fakeReplyStanzaId}
+                  onChange={e => setFakeReplyStanzaId(e.target.value)}
+                  className="w-full px-3 py-2 bg-white dark:bg-dark-tertiary border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="Auto-filled from replied message"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Fake Message Text
+                </label>
+                <textarea
+                  value={fakeReplyText}
+                  onChange={e => setFakeReplyText(e.target.value)}
+                  rows={3}
+                  className="w-full px-3 py-2 bg-white dark:bg-dark-tertiary border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="Text of the fake message"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Fake Sender Name
+                </label>
+                <input
+                  type="text"
+                  value={fakeReplySenderName}
+                  onChange={e => setFakeReplySenderName(e.target.value)}
+                  className="w-full px-3 py-2 bg-white dark:bg-dark-tertiary border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="Sender name for fake message"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Fake Sender JID (optional)
+                </label>
+                <input
+                  type="text"
+                  value={fakeReplySenderJid}
+                  onChange={e => setFakeReplySenderJid(e.target.value)}
+                  className="w-full px-3 py-2 bg-white dark:bg-dark-tertiary border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="e.g. 1234567890@s.whatsapp.net"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => setFakeReplyOpen(false)}
+                className="px-4 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  void confirmFakeReply()
+                }}
+                className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+              >
+                Use This Fake Reply
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

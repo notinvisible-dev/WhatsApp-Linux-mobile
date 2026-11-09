@@ -110,3 +110,15 @@ Planned improvements include:
 ## Project Status
 
 Whats4Linux Mobile is an ongoing project. Features and functionality may change as development continues.
+
+
+
+## Disclaimer
+
+Whats4Linux Mobile is an unofficial, independently developed, third-party WhatsApp client. It is not affiliated with, endorsed by, or associated with WhatsApp LLC or Meta Platforms, Inc.
+
+WhatsApp is a trademark of its respective owner.
+
+Every effort has been made to respect Meta's intellectual property, trademarks, and applicable policies. This project is developed independently, and no proprietary WhatsApp source code is intentionally included.
+
+**In other words:** I've tried my best not to make the big company Meta angry. Please don't sue me :3
